@@ -7,7 +7,9 @@ It lets you:
 - Capture a document with your camera
 - Import a document image from your device
 - Extract text locally using OCR
-- Export the result as a searchable PDF
+- Export the result as a searchable PDF directly to `Downloads/Charted/`
+- Preview, share, or delete recent scans instantly
+- Benefit from automatic high refresh rate adaptation for buttery-smooth performance on Android
 - Use light or dark mode
 - Use the Linux graphical interface or command-line interface
 
@@ -17,17 +19,24 @@ Repository: <https://github.com/mohammadsalih0/charted>
 
 ## Current release
 
-Version: **1.0.0**
+Version: **1.1.0**
 
 Available artifacts:
 
-- Android APK: `build/app/outputs/flutter-apk/Charted-1.0.0.apk`
-- Linux AppImage: `dist/Charted-1.0.0.AppImage`
+- Android APK: `build/app/outputs/flutter-apk/Charted-1.1.0.apk`
+- Linux AppImage: `dist/Charted-1.1.0.AppImage`
 
 ## Supported platforms
 
 - Android
 - Linux x86_64
+
+## Key Android Features
+
+- **Local OCR**: Powered by Google ML Kit Text Recognition running entirely on-device.
+- **High Refresh Rate Adaptation**: Automatically detects display modes and configures window attributes to run at the highest possible screen refresh rate for fluid scrolling and animations.
+- **Public Downloads Integration**: Automatically saves generated PDFs to the public `Downloads/Charted/` directory (`/storage/emulated/0/Download/Charted/`).
+- **Recent Scans Management**: Keep track of recent exports with built-in actions to **Preview**, **Share**, or **Delete** (with automatic disk cleanup) scans directly from the app interface.
 
 ## OCR
 
@@ -70,7 +79,7 @@ Install the release APK on an Android device:
 adb install build/app/outputs/flutter-apk/Charted-1.0.0.apk
 ```
 
-The Android export flow uses the system save-document dialog. Choose the destination folder when saving a PDF.
+Scanned PDFs are automatically saved to `Downloads/Charted/` on your device.
 
 ## Linux graphical application
 

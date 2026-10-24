@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -98,11 +99,33 @@ class ScannerHome extends StatefulWidget {
 class _ScannerHomeState extends State<ScannerHome> {
   static final _repositoryUri =
       Uri.parse('https://github.com/mohammadsalih0/charted');
+  static const _fileChannel = MethodChannel('com.zentex.charted/files');
   final _picker = ImagePicker();
   final _documentService = DocumentService();
   bool _isProcessing = false;
   String? _error;
   String? _lastExportPath;
+  String? _lastExportDisplayPath;
+  List<String> _recentScans = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecentScans();
+  }
+
+  Future<void> _loadRecentScans() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _recentScans = prefs.getStringList('recent_scans') ?? [];
+    });
+  }
+
+  Future<void> _saveRecentScans() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('recent_scans', _recentScans);
+  }
 
   Future<void> _scanFromCamera() async {
     if (kIsWeb) return _showMessage('Camera scanning is available on Android.');
@@ -126,19 +149,60 @@ class _ScannerHomeState extends State<ScannerHome> {
       _isProcessing = true;
       _error = null;
       _lastExportPath = null;
+      _lastExportDisplayPath = null;
     });
     try {
       final text = await _documentService.recognizeText(image);
       final output = await _documentService.createPdf(text);
+      final fileName = output.split('/').last.split('\\').last;
+      final displayPath = 'Downloads/Charted/$fileName';
       if (!mounted) return;
-      setState(() => _lastExportPath = output);
-      _showMessage('PDF saved to $output');
+      setState(() {
+        _lastExportPath = output;
+        _lastExportDisplayPath = displayPath;
+        if (!_recentScans.contains(output)) {
+          _recentScans.insert(0, output);
+          if (_recentScans.length > 20) {
+            _recentScans = _recentScans.sublist(0, 20);
+          }
+        }
+      });
+      await _saveRecentScans();
+      _showMessage('PDF saved to $displayPath');
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
+  }
 
+  Future<void> _openScan(String path) async {
+    try {
+      await _fileChannel.invokeMethod('openFile', {'path': path});
+    } catch (e) {
+      if (mounted) _showMessage('Unable to preview PDF: $e');
+    }
+  }
+
+  Future<void> _shareScan(String path) async {
+    try {
+      await _fileChannel.invokeMethod('shareFile', {'path': path});
+    } catch (e) {
+      if (mounted) _showMessage('Unable to share PDF: $e');
+    }
+  }
+
+  Future<void> _deleteScan(String path) async {
+    setState(() {
+      _recentScans.remove(path);
+    });
+    await _saveRecentScans();
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {}
   }
 
   Future<void> _openRepository() async {
@@ -212,52 +276,102 @@ class _ScannerHomeState extends State<ScannerHome> {
                   color: colors.error,
                 ),
               ],
-              if (_lastExportPath != null) ...[
+              if (_lastExportPath != null && _lastExportDisplayPath != null) ...[
                 const SizedBox(height: 14),
                 _StatusBanner(
                   icon: Icons.check_circle_outline,
-                  text: 'Done. Your PDF is ready at $_lastExportPath',
+                  text: 'Done. Your PDF is ready at $_lastExportDisplayPath',
                   color: Colors.green.shade700,
                 ),
               ],
               const SizedBox(height: 42),
-              Text(
-                'How it works',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              const SizedBox(height: 16),
-              const Row(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: _Step(
-                      number: '01',
-                      icon: Icons.document_scanner_outlined,
-                      title: 'Capture',
-                      text: 'Take a photo or choose an existing image.',
-                    ),
+                  Text(
+                    'Recent Scans',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
-                  SizedBox(width: 14),
-                  Expanded(
-                    child: _Step(
-                      number: '02',
-                      icon: Icons.text_fields,
-                      title: 'Recognize',
-                      text: 'Local OCR turns your image into text.',
+                  if (_recentScans.isNotEmpty)
+                    TextButton(
+                      onPressed: () async {
+                        setState(() => _recentScans.clear());
+                        await _saveRecentScans();
+                      },
+                      child: const Text('Clear all'),
                     ),
-                  ),
-                  SizedBox(width: 14),
-                  Expanded(
-                    child: _Step(
-                      number: '03',
-                      icon: Icons.picture_as_pdf_outlined,
-                      title: 'Export',
-                      text: 'Save a searchable PDF on your device.',
-                    ),
-                  ),
                 ],
               ),
+              const SizedBox(height: 16),
+              if (_recentScans.isEmpty)
+                Card(
+                  elevation: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: Text(
+                        'No recent scans yet. Scan a document above to get started.',
+                        style: TextStyle(color: colors.onSurfaceVariant),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                ..._recentScans.map((path) {
+                  final fileName = path.split('/').last.split('\\').last;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Card(
+                      elevation: 0,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 8,
+                        ),
+                        leading: CircleAvatar(
+                          backgroundColor: colors.primary.withValues(alpha: 0.1),
+                          child: Icon(Icons.picture_as_pdf, color: colors.primary),
+                        ),
+                        title: Text(
+                          fileName,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          path,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Preview',
+                              icon: const Icon(Icons.visibility_outlined),
+                              onPressed: () => _openScan(path),
+                            ),
+                            IconButton(
+                              tooltip: 'Share',
+                              icon: const Icon(Icons.share_outlined),
+                              onPressed: () => _shareScan(path),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _deleteScan(path),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
               const SizedBox(height: 42),
               Card(
                 elevation: 0,
@@ -359,53 +473,6 @@ class _ScanCard extends StatelessWidget {
                   ),
                 ],
               ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Step extends StatelessWidget {
-  const _Step({
-    required this.number,
-    required this.icon,
-    required this.title,
-    required this.text,
-  });
-
-  final String number;
-  final IconData icon;
-  final String title;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(icon, color: colors.primary),
-                Text(
-                  number,
-                  style: TextStyle(
-                    color: colors.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            Text(text, style: TextStyle(color: colors.onSurfaceVariant)),
           ],
         ),
       ),
